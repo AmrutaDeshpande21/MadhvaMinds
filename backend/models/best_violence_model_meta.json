@@ -1,0 +1,16 @@
+{
+    "in_features": 2048,
+    "sequence_length": 32,
+    "hidden_dim": 256,
+    "lstm_hidden": 128,
+    "class_mapping": {
+        "0": "NORMAL",
+        "1": "VIOLENCE/FIGHT"
+    },
+    "best_val_f1": 0.7741935483870968,
+    "best_val_acc": 0.7666666666666667,
+    "best_val_precision": 0.75,
+    "best_val_recall": 0.8,
+    "epoch": 4,
+    "training_time_sec": 20.54141139984131
+}

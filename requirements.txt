@@ -5,3 +5,10 @@ ultralytics
 mediapipe
 shapely
 huggingface_hub
+torch
+scikit-learn
+matplotlib
+pandas
+tqdm
+pyyaml
+

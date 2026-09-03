@@ -3,10 +3,11 @@ import json
 from datetime import datetime
 
 DATABASE_URL = "postgres://madhva:password@127.0.0.1:5432/incident_db"
+IN_MEMORY_INCIDENTS = []
 
 async def init_db():
     try:
-        conn = await asyncpg.connect(DATABASE_URL)
+        conn = await asyncpg.connect(DATABASE_URL, timeout=2.0)
         
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS cameras (
@@ -31,11 +32,22 @@ async def init_db():
         await conn.close()
         print("PostgreSQL Database schema initialized successfully.")
     except Exception as e:
-        print(f"Warning: Could not initialize DB (ensure Docker is running): {e}")
+        print(f"Notice: PostgreSQL DB not connected ({e}). Operating with in-memory storage fallback.")
 
 async def save_incident(incident_data):
+    # Store in memory fallback first
+    in_mem_record = {
+        "id": incident_data.get("id"),
+        "camera_id": incident_data.get("camera_id", "demo-cam-1"),
+        "event_type": incident_data.get("type", "Unknown"),
+        "severity": incident_data.get("severity", 1),
+        "confidence": incident_data.get("confidence", 0.0),
+        "started_at": datetime.fromtimestamp(incident_data.get("timestamp", datetime.now().timestamp())).isoformat()
+    }
+    IN_MEMORY_INCIDENTS.append(in_mem_record)
+
     try:
-        conn = await asyncpg.connect(DATABASE_URL)
+        conn = await asyncpg.connect(DATABASE_URL, timeout=2.0)
         await conn.execute('''
             INSERT INTO incidents (camera_id, event_type, severity, confidence, started_at, metadata)
             VALUES ($1, $2, $3, $4, $5, $6)
@@ -50,11 +62,11 @@ async def save_incident(incident_data):
         await conn.close()
         print(f"Incident saved to DB: {incident_data['type']}")
     except Exception as e:
-        print(f"DB Save Error: {e}")
+        pass
 
 async def get_incidents(limit=50):
     try:
-        conn = await asyncpg.connect(DATABASE_URL)
+        conn = await asyncpg.connect(DATABASE_URL, timeout=2.0)
         records = await conn.fetch('''
             SELECT id, camera_id, event_type, severity, confidence, started_at
             FROM incidents
@@ -62,9 +74,8 @@ async def get_incidents(limit=50):
             LIMIT $1
         ''', limit)
         await conn.close()
-        
-        # Convert records to list of dicts
         return [dict(r) for r in records]
-    except Exception as e:
-        print(f"DB Fetch Error: {e}")
-        return []
+    except Exception:
+        # Return memory list sorted newest first
+        return list(reversed(IN_MEMORY_INCIDENTS))[:limit]
+

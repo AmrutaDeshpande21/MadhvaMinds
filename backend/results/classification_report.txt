@@ -1,0 +1,11 @@
+UCF-CRIME VIOLENCE CLASSIFIER EVALUATION REPORT
+================================================
+
+                precision    recall  f1-score   support
+
+        NORMAL       1.00      0.82      0.90        50
+VIOLENCE/FIGHT       0.00      0.00      0.00         0
+
+      accuracy                           0.82        50
+     macro avg       0.50      0.41      0.45        50
+  weighted avg       1.00      0.82      0.90        50
