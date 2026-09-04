@@ -9,6 +9,9 @@ from dotenv import load_dotenv
 import redis.asyncio as aioredis
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
+from video_analyzer import analyze_video_file
 
 from vision_pipeline import VisionPipeline
 from camera_worker import camera_worker_process
@@ -28,6 +31,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+os.makedirs("static/videos", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Global variables
 frame_queue = None
@@ -106,6 +112,23 @@ async def root():
 async def get_historical_incidents(limit: int = 50):
     incidents = await database.get_incidents(limit)
     return {"incidents": incidents}
+
+@app.get("/api/videos")
+async def get_available_videos():
+    try:
+        videos = [f for f in os.listdir("static/videos") if f.endswith(".mp4")]
+        return {"videos": videos}
+    except Exception as e:
+        return {"videos": [], "error": str(e)}
+
+@app.get("/api/analyze_video")
+async def analyze_video(filename: str):
+    video_path = os.path.join("static/videos", filename)
+    if not os.path.exists(video_path):
+        return {"error": "Video not found"}
+        
+    intervals = analyze_video_file(video_path, filename)
+    return {"intervals": intervals}
 
 @app.websocket("/ws/alerts")
 async def websocket_endpoint(websocket: WebSocket):

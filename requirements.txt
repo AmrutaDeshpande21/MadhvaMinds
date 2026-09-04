@@ -5,3 +5,7 @@ ultralytics
 mediapipe
 shapely
 huggingface_hub
+redis
+python-dotenv
+httpx
+asyncpg
