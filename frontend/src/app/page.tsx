@@ -72,6 +72,70 @@ export default function Home() {
   // Map & Navigation Directions Modal State
   const [showMapModal, setShowMapModal] = useState<boolean>(false);
 
+  // Police Control Room Telegram Dispatch State
+  const [showTelegramModal, setShowTelegramModal] = useState<boolean>(false);
+  const [telegramConfig, setTelegramConfig] = useState<{ configured: boolean; chat_id?: string }>({ configured: false });
+  const [telegramBotToken, setTelegramBotToken] = useState<string>("");
+  const [telegramChatId, setTelegramChatId] = useState<string>("");
+  const [telegramSending, setTelegramSending] = useState<boolean>(false);
+  const [telegramStatusMsg, setTelegramStatusMsg] = useState<string>("");
+
+  const sendTelegramAlert = async (anomalyData?: any) => {
+    setTelegramSending(true);
+    setTelegramStatusMsg("");
+    try {
+      const payload = anomalyData || {
+        type: selectedVideo?.category || "ANOMALY DETECTED",
+        event_type: selectedVideo?.category || "Security Alert",
+        location: selectedVideo?.location || videoAnalysis?.location || "Terminal 2 - Gates 4 & 5",
+        city: selectedVideo?.city || videoAnalysis?.city || "Central Airport Complex",
+        sample: selectedVideo?.filename || "Abuse041_x264.mp4",
+        confidence: 0.885,
+        maps_query: selectedVideo?.maps_query || selectedVideo?.location
+      };
+
+      const res = await fetch("http://localhost:8000/api/telegram/send-alert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      setTelegramSending(false);
+      if (data.success) {
+        setTelegramStatusMsg(data.simulated ? "📱 Telegram Alert Dispatched in Police Control Log (Simulation Mode)!" : "✅ Telegram Alert Dispatched to Police Control Room!");
+      } else {
+        setTelegramStatusMsg(`❌ Dispatch Error: ${data.error || "Failed"}`);
+      }
+    } catch (e: any) {
+      setTelegramSending(false);
+      setTelegramStatusMsg(`❌ Connection Error: ${e.message}`);
+    }
+  };
+
+  const saveTelegramConfig = async () => {
+    setTelegramSending(true);
+    setTelegramStatusMsg("");
+    try {
+      const res = await fetch("http://localhost:8000/api/telegram/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bot_token: telegramBotToken,
+          chat_id: telegramChatId
+        })
+      });
+      const data = await res.json();
+      setTelegramSending(false);
+      if (data.success) {
+        setTelegramConfig({ configured: data.configured, chat_id: data.chat_id });
+        setTelegramStatusMsg("✅ Telegram Bot credentials saved!");
+      }
+    } catch (e: any) {
+      setTelegramSending(false);
+      setTelegramStatusMsg(`❌ Error saving config: ${e.message}`);
+    }
+  };
+
   const announceAnomalySpeech = (anomalyType: string, cameraName: string = "this camera", locationName?: string) => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     
@@ -99,8 +163,16 @@ export default function Home() {
 
   const ws = useRef<WebSocket | null>(null);
 
-  // Fetch Available Real UCF-Crime Videos on Mount
+  // Fetch Available Real UCF-Crime Videos & Telegram Config on Mount
   useEffect(() => {
+    fetch("http://localhost:8000/api/telegram/config")
+      .then((res) => res.json())
+      .then((data) => {
+        setTelegramConfig(data);
+        if (data.chat_id) setTelegramChatId(data.chat_id);
+      })
+      .catch((err) => console.error("Could not fetch telegram config", err));
+
     fetch("http://localhost:8000/api/dataset/videos")
       .then((res) => res.json())
       .then((data) => {
@@ -253,6 +325,17 @@ export default function Home() {
             : "camera feed";
           const locName = selectedVideo?.location || videoAnalysis?.location || "Terminal 2 Security Zone";
           announceAnomalySpeech(tag, camName, locName);
+
+          // Automatically dispatch Telegram alert to Police Control Room
+          sendTelegramAlert({
+            type: tag,
+            event_type: matched.event_type || selectedVideo?.category,
+            location: selectedVideo?.location || videoAnalysis?.location,
+            city: selectedVideo?.city || videoAnalysis?.city,
+            sample: selectedVideo?.filename,
+            confidence: (matched.peak_confidence || 88.5) / 100.0,
+            maps_query: selectedVideo?.maps_query || selectedVideo?.location
+          });
         }
       } else {
         setActiveOverlay(null);
@@ -299,35 +382,50 @@ export default function Home() {
         <title>MadhvaMinds - Real UCF-Crime Video Anomaly Intelligence Platform</title>
       </Head>
 
-      {/* Main Header */}
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 pb-4 border-b border-neutral-800">
+      {/* Main Header - Police Control Room Incident Monitoring Platform */}
+      <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6 pb-4 border-b border-neutral-800">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-500">
-              MadhvaMinds
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-2xl">👮</span>
+            <h1 className="text-2xl md:text-3xl font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-cyan-400 to-indigo-400">
+              MadhvaMinds Police Control Room
             </h1>
-            <span className="text-xs bg-cyan-500/20 text-cyan-400 font-mono px-2.5 py-0.5 rounded border border-cyan-500/30">
-              REAL UCF-CRIME VIDEO AI ENGINE v3.0
+            <span className="text-xs bg-blue-950 text-blue-300 font-mono font-bold px-2.5 py-1 rounded-lg border border-blue-600/50 flex items-center gap-1.5 shadow">
+              <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping"></span>
+              🚨 CENTRAL DISPATCH HQ
             </span>
           </div>
-          <p className="text-neutral-400 text-sm mt-0.5">
-            Real-Time Surveillance Anomaly Detection — PyTorch Temporal Inference (Zero Webcam)
+          <p className="text-neutral-400 text-xs md:text-sm mt-1">
+            Real-Time CCTV Anomaly Monitoring & Automated Police Dispatch via Siri Voice & Telegram Alerts
           </p>
         </div>
 
         {/* Control Bar & Navigation Tabs */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Telegram Dispatch Indicator & Modal Trigger */}
+          <button
+            onClick={() => setShowTelegramModal(true)}
+            className="flex items-center gap-2 bg-gradient-to-r from-blue-950 to-indigo-950 hover:from-blue-900 hover:to-indigo-900 border border-blue-700/60 px-3 py-1.5 rounded-xl text-xs font-bold text-blue-300 transition shadow-lg"
+            title="Configure Police Control Room Telegram Bot & Chat ID"
+          >
+            <span className="text-base">📱</span>
+            <span>POLICE TELEGRAM BOT</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-black ${telegramConfig.configured ? "bg-emerald-600 text-white" : "bg-cyan-600 text-white animate-pulse"}`}>
+              {telegramConfig.configured ? "ACTIVE" : "READY (SIMULATION)"}
+            </span>
+          </button>
+
           <div className="flex items-center gap-2 bg-neutral-900 border border-neutral-800 px-3 py-1.5 rounded-xl">
-            <span className="text-xs text-neutral-400">Mode:</span>
+            <span className="text-xs text-neutral-400">Status:</span>
             {analyzingVideo ? (
               <span className="flex items-center gap-1.5 text-xs font-semibold text-cyan-400 bg-cyan-500/10 px-2.5 py-0.5 rounded-lg border border-cyan-500/20">
                 <span className="w-2 h-2 rounded-full bg-cyan-500 animate-ping"></span>
-                ● EXTRACTING I3D FEATURES & INFERRING TEMPORAL WINDOWS
+                ● INFERRING TEMPORAL WINDOWS
               </span>
             ) : (
               <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-lg border border-emerald-500/20">
                 <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                REAL UCF-CRIME MP4 SIMULATION ACTIVE
+                CONTROL ROOM LIVE STREAM
               </span>
             )}
           </div>
@@ -588,7 +686,15 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 self-end md:self-center">
+                <div className="flex flex-wrap items-center gap-2 self-end md:self-center">
+                  <button
+                    onClick={() => sendTelegramAlert()}
+                    className="px-3.5 py-2 bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-600 hover:to-indigo-600 text-white rounded-xl text-xs font-extrabold transition flex items-center gap-1.5 shadow-lg shadow-blue-950/50"
+                    title="Send immediate Telegram anomaly notification to Police Control Room"
+                  >
+                    📱 TELEGRAM DISPATCH
+                  </button>
+
                   <button
                     onClick={() => {
                       const query = `${selectedVideo.location || 'Surveillance Location'}, ${selectedVideo.city || ''}`;
@@ -602,7 +708,7 @@ export default function Home() {
 
                   <button
                     onClick={() => setShowMapModal(true)}
-                    className="px-3.5 py-2 bg-neutral-800 hover:bg-neutral-700 text-cyan-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-neutral-700"
+                    className="px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-cyan-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-neutral-700"
                     title="View in-app incident location map modal"
                   >
                     🗺️ DISPATCH MAP
@@ -1013,6 +1119,12 @@ export default function Home() {
                 Close Window
               </button>
               <button
+                onClick={() => sendTelegramAlert()}
+                className="px-4 py-2 bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-600 hover:to-indigo-600 text-white text-xs font-black rounded-xl transition shadow-lg flex items-center gap-1.5"
+              >
+                📱 DISPATCH TELEGRAM ALERT
+              </button>
+              <button
                 onClick={() => {
                   const query = `${selectedVideo.location || 'Surveillance Location'}, ${selectedVideo.city || ''}`;
                   window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, '_blank');
@@ -1021,6 +1133,97 @@ export default function Home() {
               >
                 🧭 OPEN IN GOOGLE MAPS ↗
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Police Control Room Telegram Dispatch Settings Modal */}
+      {showTelegramModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="bg-neutral-900 border border-blue-600/50 rounded-3xl max-w-xl w-full p-6 space-y-5 shadow-2xl relative">
+            <div className="flex justify-between items-start border-b border-neutral-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-blue-600/20 text-blue-400 rounded-2xl border border-blue-500/30 text-2xl font-black">
+                  📱
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-blue-300 uppercase tracking-widest bg-blue-500/20 px-2 py-0.5 rounded border border-blue-500/30">
+                    POLICE CONTROL ROOM DISPATCH
+                  </span>
+                  <h3 className="text-lg font-black text-white mt-1">
+                    Telegram Alert Bot Settings
+                  </h3>
+                  <p className="text-xs text-neutral-400">
+                    Connect Police Control Room Telegram Bot & Chat ID for instant incident alert dispatching.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowTelegramModal(false)}
+                className="text-neutral-400 hover:text-white bg-neutral-800 p-2 rounded-xl text-xs font-bold transition"
+              >
+                ✕ CLOSE
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs font-mono">
+              <div className="space-y-1.5">
+                <label className="text-neutral-300 font-bold block">TELEGRAM BOT TOKEN:</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 7123456789:AAFx... (Optional, defaults to backend simulation)"
+                  value={telegramBotToken}
+                  onChange={(e) => setTelegramBotToken(e.target.value)}
+                  className="w-full bg-neutral-950 text-white p-3 rounded-xl border border-neutral-700 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-neutral-300 font-bold block">POLICE CONTROL ROOM CHAT ID:</label>
+                <input
+                  type="text"
+                  placeholder="e.g. -100123456789 or @police_control_channel"
+                  value={telegramChatId}
+                  onChange={(e) => setTelegramChatId(e.target.value)}
+                  className="w-full bg-neutral-950 text-white p-3 rounded-xl border border-neutral-700 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {telegramStatusMsg && (
+                <div className={`p-3 rounded-xl text-xs font-bold font-mono ${
+                  telegramStatusMsg.includes("✅") ? "bg-emerald-950/80 text-emerald-300 border border-emerald-700" :
+                  telegramStatusMsg.includes("📱") ? "bg-blue-950/80 text-blue-300 border border-blue-700" :
+                  "bg-red-950/80 text-red-300 border border-red-700"
+                }`}>
+                  {telegramStatusMsg}
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-neutral-800">
+              <button
+                disabled={telegramSending}
+                onClick={() => sendTelegramAlert()}
+                className="px-4 py-2.5 bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-600 hover:to-indigo-600 text-white text-xs font-black rounded-xl transition shadow-lg flex items-center gap-2"
+              >
+                {telegramSending ? "⚡ DISPATCHING..." : "📱 TEST TELEGRAM DISPATCH"}
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowTelegramModal(false)}
+                  className="px-4 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-bold rounded-xl transition"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={saveTelegramConfig}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl transition shadow-lg"
+                >
+                  Save Credentials
+                </button>
+              </div>
             </div>
           </div>
         </div>
