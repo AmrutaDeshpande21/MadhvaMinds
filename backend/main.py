@@ -131,6 +131,49 @@ DATASET_VIDEO_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."
 os.makedirs(DATASET_VIDEO_DIR, exist_ok=True)
 app.mount("/dataset/videos", StaticFiles(directory=DATASET_VIDEO_DIR), name="dataset_videos")
 
+LOCATION_MAPPINGS = {
+    "Abuse": {
+        "location": "Terminal 2 - Gates 4 & 5",
+        "city": "Central Airport Complex",
+        "maps_query": "Terminal 2 Central Airport"
+    },
+    "Arrest": {
+        "location": "North Entrance Security Gate",
+        "city": "Zone 3 Perimeter",
+        "maps_query": "North Entrance Security Gate"
+    },
+    "Arson": {
+        "location": "Industrial Park Warehouse B",
+        "city": "Fuel Depot Complex",
+        "maps_query": "Industrial Park Fuel Depot"
+    },
+    "Assault": {
+        "location": "Underground Metro Passage",
+        "city": "Transit Concourse",
+        "maps_query": "Underground Metro Passage"
+    },
+    "Burglary": {
+        "location": "Jewelry Vault & Financial Store",
+        "city": "Main Commercial Street",
+        "maps_query": "Commercial Main Street"
+    },
+    "Explosion": {
+        "location": "Refinery Sector 7 & Chemical Yard",
+        "city": "Industrial Complex",
+        "maps_query": "Refinery Chemical Complex"
+    },
+    "Fighting": {
+        "location": "Sports Arena Gate 2",
+        "city": "Stadium Concourse",
+        "maps_query": "Sports Arena Concourse"
+    },
+    "Normal": {
+        "location": "Central Atrium Plaza",
+        "city": "Public Mall Concourse",
+        "maps_query": "Central Atrium Plaza"
+    }
+}
+
 @app.get("/api/dataset/videos")
 async def list_dataset_videos():
     video_files = sorted(glob.glob(os.path.join(DATASET_VIDEO_DIR, "*.mp4")))
@@ -152,6 +195,12 @@ async def list_dataset_videos():
             raw_c = fn.split('_')[0]
             category = ''.join([c for c in raw_c if not c.isdigit()]) or "Anomaly"
 
+        loc_info = LOCATION_MAPPINGS.get(category, {
+            "location": f"Zone Camera #{fn.split('_')[0]}",
+            "city": "Surveillance Area Node",
+            "maps_query": fn
+        })
+
         result.append({
             "filename": fn,
             "path": vf,
@@ -160,7 +209,10 @@ async def list_dataset_videos():
             "fps": round(fps, 2),
             "resolution": f"{w}x{h}",
             "category": category,
-            "is_anomaly": not is_normal
+            "is_anomaly": not is_normal,
+            "location": loc_info["location"],
+            "city": loc_info["city"],
+            "maps_query": loc_info["maps_query"]
         })
 
     return {
@@ -183,6 +235,16 @@ async def analyze_dataset_video(payload: dict):
         from violence.test_real_video import run_real_video_inference
         res = run_real_video_inference(video_path)
 
+        cat = res.get("event_type") or ("Normal" if "Normal" in filename else "".join([c for c in filename.split('_')[0] if not c.isdigit()]))
+        loc_info = LOCATION_MAPPINGS.get(cat, {
+            "location": f"Zone Camera #{filename.split('_')[0]}",
+            "city": "Surveillance Area Node",
+            "maps_query": filename
+        })
+        res["location"] = loc_info["location"]
+        res["city"] = loc_info["city"]
+        res["maps_query"] = loc_info["maps_query"]
+
         # Log anomaly incident to DB if detected
         if res.get("is_anomaly"):
             now_ts = time.time()
@@ -194,6 +256,8 @@ async def analyze_dataset_video(payload: dict):
                 "confidence": res.get("confidence") / 100.0,
                 "timestamp": now_ts,
                 "camera_id": "UCF-CRIME RAW MP4",
+                "location": loc_info["location"],
+                "city": loc_info["city"],
                 "source": f"UCF-Crime MP4 ({filename})",
                 "sample": filename,
                 "timestamp_seconds": res.get("timestamp_seconds"),

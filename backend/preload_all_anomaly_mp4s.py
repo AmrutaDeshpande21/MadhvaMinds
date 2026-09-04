@@ -11,17 +11,24 @@ def discover_and_download():
     os.makedirs(DATASET_VIDEO_DIR, exist_ok=True)
     api = HfApi()
     
-    print(f"Querying {HF_REPO_ID} for all anomaly MP4 videos...")
+    print(f"Querying {HF_REPO_ID} for representative UCF anomaly MP4 videos...")
     try:
         repo_files = api.list_repo_files(repo_id=HF_REPO_ID, repo_type=HF_REPO_TYPE)
         mp4_files = [f for f in repo_files if f.endswith('.mp4')]
         print(f"Found {len(mp4_files)} total MP4 files in repo.")
         
-        abnormal = [f for f in mp4_files if "abnormal" in f or "Normal" not in f][:15]
-        normal = [f for f in mp4_files if "normal" in f or "Normal" in f][:5]
-        
-        targets = abnormal + normal
-        print(f"Downloading {len(targets)} selected MP4 video files...")
+        by_cat = {}
+        for f in mp4_files:
+            fn = os.path.basename(f)
+            cat = 'Normal' if 'Normal' in fn else (''.join([c for c in fn.split('_')[0] if not c.isdigit()]) or 'Anomaly')
+            by_cat.setdefault(cat, []).append(f)
+            
+        targets = []
+        for cat, file_list in by_cat.items():
+            # Pick first 2-3 videos per category for balanced representation
+            targets.extend(file_list[:2])
+            
+        print(f"Downloading {len(targets)} selected MP4 video files across {len(by_cat)} categories...")
         
         def dl(hf_path):
             fn = os.path.basename(hf_path)
@@ -52,3 +59,4 @@ def discover_and_download():
 
 if __name__ == "__main__":
     discover_and_download()
+

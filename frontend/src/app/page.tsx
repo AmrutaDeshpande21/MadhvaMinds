@@ -39,6 +39,64 @@ export default function Home() {
   const [normalCount, setNormalCount] = useState<number>(0);
   const [accuracy, setAccuracy] = useState<number>(100.0);
 
+  // Automatic Female Siri Voice Speech Synthesis Engine
+  const lastAnnouncedIntervalRef = useRef<string | null>(null);
+
+  const getSiriFemaleVoice = (): SpeechSynthesisVoice | null => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices || voices.length === 0) return null;
+
+    // Search priority for Siri & clear female voice profiles
+    const preferredPatterns = [
+      "siri",
+      "samantha",
+      "victoria",
+      "karen",
+      "zira",
+      "google us english",
+      "google uk english female",
+      "microsoft zira",
+      "fiona",
+      "moira",
+      "female"
+    ];
+    for (const pattern of preferredPatterns) {
+      const match = voices.find(v => v.name.toLowerCase().includes(pattern));
+      if (match) return match;
+    }
+
+    return voices.find(v => v.lang.startsWith("en")) || voices[0] || null;
+  };
+
+  // Map & Navigation Directions Modal State
+  const [showMapModal, setShowMapModal] = useState<boolean>(false);
+
+  const announceAnomalySpeech = (anomalyType: string, cameraName: string = "this camera", locationName?: string) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    
+    // Stop previous utterance for immediate alert delivery
+    window.speechSynthesis.cancel();
+
+    const cleanType = anomalyType || "Security Threat";
+    const cameraLabel = cameraName.startsWith("camera") ? cameraName : `camera ${cameraName}`;
+    const locLabel = locationName || selectedVideo?.location || "Terminal 2 Security Zone";
+    
+    const text = `Alert! Anomaly detected in ${cameraLabel}, located at ${locLabel}. Type of anomaly is ${cleanType}.`;
+    const utterance = new SpeechSynthesisUtterance(text);
+    
+    const femaleVoice = getSiriFemaleVoice();
+    if (femaleVoice) {
+      utterance.voice = femaleVoice;
+    }
+    
+    utterance.rate = 1.0; // Natural Siri cadence
+    utterance.pitch = 1.25; // Gentle, clear female pitch
+    utterance.volume = 1.0;
+
+    window.speechSynthesis.speak(utterance);
+  };
+
   const ws = useRef<WebSocket | null>(null);
 
   // Fetch Available Real UCF-Crime Videos on Mount
@@ -84,6 +142,17 @@ export default function Home() {
         setCanvasSrc(data.image);
       }
       
+      if (data.alerts && data.alerts.length > 0) {
+        const firstAlert = data.alerts[0];
+        const alertKey = `ws_${firstAlert.id || firstAlert.timestamp}`;
+        if (lastAnnouncedIntervalRef.current !== alertKey) {
+          lastAnnouncedIntervalRef.current = alertKey;
+          const tag = firstAlert.type || firstAlert.event_type || "Threat";
+          const cam = firstAlert.camera_id || "surveillance feed";
+          announceAnomalySpeech(tag, cam);
+        }
+      }
+
       if (data.simulation) {
         setSimRunning(data.simulation.running || false);
         setSimStatusText(data.simulation.status || "READY");
@@ -120,6 +189,7 @@ export default function Home() {
     setCurrentDetections([]); // Clear previous video detections
     setActiveOverlay(null);
     setVideoEnded(false);
+    lastAnnouncedIntervalRef.current = null;
 
     if (videoRef.current) {
       videoRef.current.currentTime = 0;
@@ -173,6 +243,17 @@ export default function Home() {
 
       if (matched && matched.is_anomaly) {
         setActiveOverlay(matched);
+
+        const intervalKey = `${selectedVideo?.filename}_${matched.start_time}_${matched.end_time}`;
+        if (lastAnnouncedIntervalRef.current !== intervalKey) {
+          lastAnnouncedIntervalRef.current = intervalKey;
+          const tag = matched.label || matched.event_type || selectedVideo?.category || "Anomaly";
+          const camName = selectedVideo?.filename
+            ? `camera ${selectedVideo.filename.replace('.mp4', '').replace('_x264', '')}`
+            : "camera feed";
+          const locName = selectedVideo?.location || videoAnalysis?.location || "Terminal 2 Security Zone";
+          announceAnomalySpeech(tag, camName, locName);
+        }
       } else {
         setActiveOverlay(null);
       }
@@ -482,6 +563,54 @@ export default function Home() {
               )}
             </div>
 
+            {/* Camera Location & Emergency Directions Bar */}
+            {selectedVideo && (
+              <div className="bg-gradient-to-r from-blue-950/70 via-neutral-900 to-indigo-950/70 p-4 rounded-2xl border border-blue-600/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-blue-600/20 text-blue-400 rounded-xl border border-blue-500/30 text-2xl font-black">
+                    📍
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-blue-300 uppercase tracking-widest bg-blue-500/20 px-2 py-0.5 rounded border border-blue-500/30">
+                        CAMERA LOCATION & GPS DISPATCH
+                      </span>
+                      <span className="text-xs text-neutral-400 font-mono">
+                        Node: #{selectedVideo.filename.split('_')[0]}
+                      </span>
+                    </div>
+                    <h4 className="text-base font-extrabold text-white mt-0.5">
+                      {selectedVideo.location || videoAnalysis?.location || "Terminal 2 - Gates 4 & 5"}
+                    </h4>
+                    <p className="text-xs text-neutral-300 font-medium">
+                      {selectedVideo.city || videoAnalysis?.city || "Central Airport Complex"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-end md:self-center">
+                  <button
+                    onClick={() => {
+                      const query = `${selectedVideo.location || 'Surveillance Location'}, ${selectedVideo.city || ''}`;
+                      window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, '_blank');
+                    }}
+                    className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl text-xs font-black transition flex items-center gap-2 shadow-lg shadow-cyan-950/50"
+                    title="Open Google Maps directions to camera incident location"
+                  >
+                    🧭 DIRECTIONS
+                  </button>
+
+                  <button
+                    onClick={() => setShowMapModal(true)}
+                    className="px-3.5 py-2 bg-neutral-800 hover:bg-neutral-700 text-cyan-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-neutral-700"
+                    title="View in-app incident location map modal"
+                  >
+                    🗺️ DISPATCH MAP
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Video & Inference Details Panel */}
             {videoAnalysis && (
               <div className="bg-neutral-900 p-4 rounded-2xl border border-neutral-800 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
@@ -786,22 +915,113 @@ export default function Home() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-800">
-                {historicalIncidents.map((inc, i) => (
-                  <tr key={i} className="hover:bg-neutral-950/60 transition">
-                    <td className="p-3 text-neutral-500">#{inc.id || i + 1}</td>
-                    <td className="p-3 font-bold text-red-400">{inc.type || inc.event_type}</td>
-                    <td className="p-3">
-                      <span className="bg-red-950 text-red-300 px-2 py-0.5 rounded border border-red-800">
-                        LEVEL {inc.severity || 5}
-                      </span>
-                    </td>
-                    <td className="p-3 text-cyan-400">{((inc.confidence || 0.94) * 100).toFixed(1)}%</td>
-                    <td className="p-3 text-neutral-300">{inc.source || inc.sample || "UCF-Crime MP4"}</td>
-                    <td className="p-3 text-neutral-400">{new Date(inc.timestamp * 1000).toLocaleString()}</td>
-                  </tr>
-                ))}
+                {historicalIncidents.map((inc, i) => {
+                  const dateVal = inc.started_at || inc.timestamp;
+                  let formattedDate = "N/A";
+                  if (dateVal) {
+                    const parsed = typeof dateVal === "number" ? new Date(dateVal < 10000000000 ? dateVal * 1000 : dateVal) : new Date(dateVal);
+                    if (!isNaN(parsed.getTime())) {
+                      formattedDate = parsed.toLocaleString();
+                    }
+                  }
+                  return (
+                    <tr key={i} className="hover:bg-neutral-950/60 transition">
+                      <td className="p-3 text-neutral-500">#{inc.id || i + 1}</td>
+                      <td className="p-3 font-bold text-red-400">{inc.type || inc.event_type}</td>
+                      <td className="p-3">
+                        <span className="bg-red-950 text-red-300 px-2 py-0.5 rounded border border-red-800">
+                          LEVEL {inc.severity || 5}
+                        </span>
+                      </td>
+                      <td className="p-3 text-cyan-400">{((inc.confidence || 0.94) * 100).toFixed(1)}%</td>
+                      <td className="p-3 text-neutral-300">{inc.source || inc.sample || "UCF-Crime MP4"}</td>
+                      <td className="p-3 text-neutral-400">{formattedDate}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Interactive Emergency Dispatch Map & Location Modal */}
+      {showMapModal && selectedVideo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="bg-neutral-900 border border-neutral-700 rounded-3xl max-w-2xl w-full p-6 space-y-5 shadow-2xl relative">
+            <div className="flex justify-between items-start border-b border-neutral-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-cyan-600/20 text-cyan-400 rounded-2xl border border-cyan-500/30 text-2xl font-black">
+                  🧭
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
+                    DISPATCH MAP & INCIDENT NAVIGATION
+                  </span>
+                  <h3 className="text-lg font-black text-white mt-1">
+                    {selectedVideo.location || "Terminal 2 - Gates 4 & 5"}
+                  </h3>
+                  <p className="text-xs text-neutral-400">
+                    {selectedVideo.city || "Central Airport Complex"} | Camera Node: #{selectedVideo.filename.split('_')[0]}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowMapModal(false)}
+                className="text-neutral-400 hover:text-white bg-neutral-800 p-2 rounded-xl text-xs font-bold transition"
+              >
+                ✕ CLOSE
+              </button>
+            </div>
+
+            {/* Simulated Live Dispatch Map Graphic */}
+            <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-6 text-center space-y-4 relative overflow-hidden">
+              <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#06b6d4_1px,transparent_1px)] [background-size:16px_16px]"></div>
+              
+              <div className="relative z-10 space-y-3">
+                <div className="inline-flex items-center gap-2 px-3 py-1 bg-red-950/80 border border-red-600 text-red-300 rounded-full text-xs font-bold animate-pulse">
+                  <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+                  LIVE ANOMALY DISPATCH ROUTE ACTIVE
+                </div>
+
+                <div className="p-4 bg-neutral-900/90 border border-neutral-800 rounded-xl max-w-md mx-auto space-y-2 text-left">
+                  <div className="flex justify-between items-center text-xs font-mono text-neutral-400">
+                    <span>INCIDENT CATEGORY:</span>
+                    <span className="text-red-400 font-bold">{selectedVideo.category.toUpperCase()}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs font-mono text-neutral-400">
+                    <span>ESTIMATED DISPATCH TIME:</span>
+                    <span className="text-emerald-400 font-bold">⏱ 3 - 5 MINS</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs font-mono text-neutral-400">
+                    <span>PRIMARY RESPONDER UNIT:</span>
+                    <span className="text-cyan-400 font-bold">UNIT #42 (PATROL)</span>
+                  </div>
+                </div>
+
+                <p className="text-xs text-neutral-400 max-w-md mx-auto">
+                  GPS Coordinates synchronized with central command. Launch external Google Maps navigation for real-time turn-by-turn routing.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end items-center gap-3 pt-2">
+              <button
+                onClick={() => setShowMapModal(false)}
+                className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-bold rounded-xl transition"
+              >
+                Close Window
+              </button>
+              <button
+                onClick={() => {
+                  const query = `${selectedVideo.location || 'Surveillance Location'}, ${selectedVideo.city || ''}`;
+                  window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, '_blank');
+                }}
+                className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-black rounded-xl transition shadow-lg shadow-cyan-950/50 flex items-center gap-2"
+              >
+                🧭 OPEN IN GOOGLE MAPS ↗
+              </button>
+            </div>
           </div>
         </div>
       )}
