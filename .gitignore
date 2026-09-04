@@ -30,4 +30,5 @@ Dataset/
 Thumbs.db
 .idea/
 .vscode/
+.pytest_cache/
 

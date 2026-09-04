@@ -11,4 +11,6 @@ matplotlib
 pandas
 tqdm
 pyyaml
+pytest
+httpx
 

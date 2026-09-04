@@ -15,8 +15,16 @@ export default function Home() {
   const [currentDetections, setCurrentDetections] = useState<any[]>([]);
   const [activeOverlay, setActiveOverlay] = useState<any | null>(null);
   const [currentTime, setCurrentTime] = useState<number>(0.0);
+  const [videoEnded, setVideoEnded] = useState<boolean>(false);
+  
+  const [categoryFilter, setCategoryFilter] = useState<string>("ALL");
   
   const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  const categories = ["ALL", ...Array.from(new Set(videoList.map(v => v.category || "Anomaly")))];
+  const filteredVideos = categoryFilter === "ALL"
+    ? videoList
+    : videoList.filter(v => (v.category || "Anomaly").toLowerCase() === categoryFilter.toLowerCase());
 
   // UCF-Crime I3D Feature Simulation State (.npy technical mode)
   const [canvasSrc, setCanvasSrc] = useState<string>("");
@@ -111,6 +119,14 @@ export default function Home() {
     setVideoAnalysis(null);
     setCurrentDetections([]); // Clear previous video detections
     setActiveOverlay(null);
+    setVideoEnded(false);
+
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+      try {
+        await videoRef.current.play();
+      } catch (e) {}
+    }
 
     try {
       const res = await fetch("http://localhost:8000/api/dataset/analyze-video", {
@@ -144,6 +160,11 @@ export default function Home() {
     const t = videoRef.current.currentTime;
     setCurrentTime(t);
 
+    const isAtEnd = videoRef.current.ended || (selectedVideo?.duration && t >= selectedVideo.duration - 0.8);
+    if (isAtEnd) {
+      setVideoEnded(true);
+    }
+
     if (videoAnalysis && videoAnalysis.intervals) {
       const intervals = videoAnalysis.intervals;
       const matched = intervals.find(
@@ -161,6 +182,7 @@ export default function Home() {
   };
 
   const seekToTimestamp = (seconds: number) => {
+    setVideoEnded(false);
     if (videoRef.current) {
       videoRef.current.currentTime = seconds;
       videoRef.current.play();
@@ -294,33 +316,66 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Real UCF-Crime HTML5 Video Player Container */}
           <div className="lg:col-span-2 space-y-4">
-            {/* Video Selector Dropdown Bar */}
-            <div className="bg-neutral-900 border border-neutral-800 p-3 rounded-2xl flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">SELECT DATASET VIDEO:</span>
-                <select
-                  value={selectedVideo?.filename || ""}
-                  onChange={(e) => {
-                    const found = videoList.find((v) => v.filename === e.target.value);
-                    if (found) handleSelectVideo(found);
-                  }}
-                  className="bg-neutral-950 text-white font-mono text-sm px-3 py-1.5 rounded-xl border border-neutral-700 focus:outline-none focus:border-cyan-500"
-                >
-                  {videoList.map((v) => (
-                    <option key={v.filename} value={v.filename}>
-                      {v.filename} ({v.duration}s | GT: {v.category})
-                    </option>
-                  ))}
-                </select>
+            {/* Video Selector & Category Filter Bar */}
+            <div className="bg-neutral-900 border border-neutral-800 p-3 rounded-2xl space-y-3">
+              {/* Category Filter Pills */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-bold text-neutral-400 mr-1 uppercase tracking-wider">FILTER CATEGORY:</span>
+                {categories.map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setCategoryFilter(cat)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
+                      categoryFilter === cat
+                        ? "bg-cyan-600 text-white shadow"
+                        : "bg-neutral-950 text-neutral-400 hover:text-white border border-neutral-800"
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => selectedVideo && analyzeVideo(selectedVideo.filename)}
-                  className="px-3.5 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-xs font-bold text-cyan-400 rounded-xl border border-neutral-700 transition flex items-center gap-1.5"
-                >
-                  ↻ RE-ANALYZE VIDEO
-                </button>
+              {/* Dropdown Selector */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-neutral-800">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">SELECT DATASET VIDEO:</span>
+                  <select
+                    value={selectedVideo?.filename || ""}
+                    onChange={(e) => {
+                      const found = videoList.find((v) => v.filename === e.target.value);
+                      if (found) handleSelectVideo(found);
+                    }}
+                    className="bg-neutral-950 text-white font-mono text-sm px-3 py-1.5 rounded-xl border border-neutral-700 focus:outline-none focus:border-cyan-500"
+                  >
+                    {filteredVideos.map((v) => (
+                      <option key={v.filename} value={v.filename}>
+                        {v.filename} ({v.duration}s)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={analyzingVideo}
+                    onClick={() => selectedVideo && analyzeVideo(selectedVideo.filename)}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                      analyzingVideo
+                        ? "bg-cyan-900/50 text-cyan-300 border border-cyan-500/50 cursor-wait animate-pulse"
+                        : "bg-neutral-800 hover:bg-neutral-700 text-cyan-400 border border-neutral-700"
+                    }`}
+                  >
+                    {analyzingVideo ? (
+                      <>
+                        <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping"></span>
+                        ⏳ RUNNING INFERENCE...
+                      </>
+                    ) : (
+                      "↻ RE-ANALYZE VIDEO"
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -329,19 +384,19 @@ export default function Home() {
               {/* Header Overlay */}
               <div className="absolute top-0 left-0 right-0 p-3 bg-gradient-to-b from-black/90 to-transparent flex justify-between items-center z-10">
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-sm tracking-wide text-cyan-400">DATASET VIDEO SIMULATION</span>
+                  <span className="font-bold text-sm tracking-wide text-cyan-400">SURVEILLANCE AI INFERENCE ENGINE</span>
                   {analyzingVideo ? (
                     <span className="text-[10px] bg-cyan-600 text-white font-bold px-2 py-0.5 rounded animate-pulse">
-                      ● INFERRING
+                      ● INFERRING TEMPORAL WINDOWS
                     </span>
                   ) : (
                     <span className="text-[10px] bg-emerald-600 text-white font-bold px-2 py-0.5 rounded">
-                      ● READY
+                      ● MODEL INFERENCE READY
                     </span>
                   )}
                 </div>
                 <div className="text-xs font-mono text-neutral-300 bg-black/70 px-2.5 py-1 rounded border border-neutral-700">
-                  SOURCE: UCF-CRIME (MP4)
+                  SOURCE: UCF-CRIME MP4
                 </div>
               </div>
 
@@ -350,13 +405,13 @@ export default function Home() {
                 <div className="absolute top-14 left-4 z-20 pointer-events-none bg-red-950/90 border-2 border-red-600 text-red-100 px-4 py-3 rounded-xl shadow-2xl backdrop-blur-md animate-pulse">
                   <div className="flex items-center gap-2 font-black text-base text-red-400">
                     <span className="w-3 h-3 rounded-full bg-red-500 animate-ping"></span>
-                    🔴 FIGHTING DETECTED
+                    🔴 {activeOverlay.label || (activeOverlay.event_type ? `${activeOverlay.event_type.toUpperCase()} DETECTED` : "ANOMALY DETECTED")}
                   </div>
                   <div className="text-xs font-mono mt-1 text-red-200">
-                    Confidence: <span className="font-bold text-white">{activeOverlay.peak_confidence}%</span>
+                    Model Confidence: <span className="font-bold text-white">{activeOverlay.peak_confidence}%</span>
                   </div>
                   <div className="text-xs font-mono text-neutral-300">
-                    Timestamp: <span className="font-bold text-cyan-400">{formatTime(currentTime)}</span> (Interval: {activeOverlay.start_time}s - {activeOverlay.end_time}s)
+                    Event Time: <span className="font-bold text-cyan-400">{formatTime(currentTime)}</span> (Window: {activeOverlay.start_time}s - {activeOverlay.end_time}s)
                   </div>
                 </div>
               ) : (
@@ -366,7 +421,7 @@ export default function Home() {
                     🟢 NORMAL ACTIVITY
                   </div>
                   <div className="text-xs font-mono mt-0.5 text-emerald-300">
-                    Confidence: <span className="font-bold text-white">{videoAnalysis ? `${videoAnalysis.confidence}%` : "98.1%"}</span> | Time: {formatTime(currentTime)}
+                    Status: <span className="font-bold text-white">No Threat Detected</span> | Time: {formatTime(currentTime)}
                   </div>
                 </div>
               )}
@@ -379,7 +434,7 @@ export default function Home() {
                     src={selectedVideo.url}
                     controls
                     autoPlay
-                    loop
+                    onEnded={() => setVideoEnded(true)}
                     onTimeUpdate={handleTimeUpdate}
                     className="w-full h-full object-contain"
                   />
@@ -405,18 +460,19 @@ export default function Home() {
                     {videoAnalysis.intervals && videoAnalysis.intervals.map((inv: any, idx: number) => {
                       const leftPct = (inv.start_time / selectedVideo.duration) * 100;
                       const widthPct = Math.max(2, ((inv.end_time - inv.start_time) / selectedVideo.duration) * 100);
+                      const displayTag = inv.label ? inv.label.replace(" DETECTED", "") : (inv.event_type ? inv.event_type.toUpperCase() : "ANOMALY");
                       return (
                         <div
                           key={idx}
                           onClick={() => seekToTimestamp(inv.start_time)}
-                          className="absolute top-0 bottom-0 bg-red-600 hover:bg-red-500 cursor-pointer shadow-lg z-20 flex items-center justify-center text-[9px] font-black text-white"
+                          className="absolute top-0 bottom-0 bg-red-600 hover:bg-red-500 cursor-pointer shadow-lg z-20 flex items-center justify-center text-[9px] font-black text-white px-1 overflow-hidden"
                           style={{
                             left: `${leftPct}%`,
                             width: `${widthPct}%`
                           }}
-                          title={`Click to view incident interval [${inv.start_time}s - ${inv.end_time}s]` }
+                          title={`Click to view incident interval [${inv.start_time}s - ${inv.end_time}s]`}
                         >
-                          FIGHT ({inv.peak_confidence}%)
+                          {displayTag} ({inv.peak_confidence}%)
                         </div>
                       );
                     })}
@@ -447,6 +503,62 @@ export default function Home() {
                 </div>
               </div>
             )}
+
+            {/* Overall Video Classification Result Banner/Card */}
+            {videoAnalysis && (
+              <div className={`p-4 rounded-2xl border transition-all ${
+                videoAnalysis.is_anomaly
+                  ? "bg-gradient-to-r from-red-950/80 via-neutral-900 to-red-950/80 border-red-500/80 shadow-lg shadow-red-950/40"
+                  : "bg-gradient-to-r from-emerald-950/80 via-neutral-900 to-emerald-950/80 border-emerald-500/80 shadow-lg shadow-emerald-950/40"
+              }`}>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className={`p-2.5 rounded-xl text-xl font-black ${
+                      videoAnalysis.is_anomaly ? "bg-red-900/60 text-red-400 border border-red-500/50" : "bg-emerald-900/60 text-emerald-400 border border-emerald-500/50"
+                    }`}>
+                      {videoAnalysis.is_anomaly ? "🚨" : "🟢"}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-neutral-950/80 text-neutral-400 border border-neutral-800">
+                          OVERALL RESULT VERDICT
+                        </span>
+                        {videoEnded && (
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-700 animate-pulse">
+                            ✓ PLAYBACK COMPLETED
+                          </span>
+                        )}
+                      </div>
+                      <h3 className={`text-base font-black tracking-wide uppercase mt-1 ${
+                        videoAnalysis.is_anomaly ? "text-red-300" : "text-emerald-300"
+                      }`}>
+                        {videoAnalysis.is_anomaly ? "ANOMALY CCTV FOOTAGE DETECTED" : "NORMAL CCTV FOOTAGE VERIFIED"}
+                      </h3>
+                      <p className="text-xs text-neutral-300 mt-1 font-mono">
+                        {videoAnalysis.is_anomaly
+                          ? `Overall Result: Classified as Anomaly CCTV Video with ${videoAnalysis.confidence}% model confidence across ${videoAnalysis.total_instances || videoAnalysis.intervals?.length || 1} threat instance window(s).`
+                          : `Overall Result: Classified as Normal CCTV Video (0 threat windows detected across full duration).`}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 sm:gap-3 text-xs font-mono self-end sm:self-center">
+                    <div className="bg-neutral-950/90 px-3.5 py-2 rounded-xl border border-neutral-800 text-center">
+                      <span className="text-neutral-400 block text-[9px] uppercase font-bold">CATEGORY</span>
+                      <span className={`font-extrabold text-sm ${videoAnalysis.is_anomaly ? "text-red-400" : "text-emerald-400"}`}>
+                        {videoAnalysis.event_type ? videoAnalysis.event_type.toUpperCase() : (videoAnalysis.is_anomaly ? "ANOMALY" : "NORMAL")}
+                      </span>
+                    </div>
+                    <div className="bg-neutral-950/90 px-3.5 py-2 rounded-xl border border-neutral-800 text-center">
+                      <span className="text-neutral-400 block text-[9px] uppercase font-bold">CONFIDENCE</span>
+                      <span className="font-extrabold text-sm text-cyan-400">
+                        {videoAnalysis.confidence}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Isolated Live Model Detections Panel for Currently Selected Video */}
@@ -455,7 +567,7 @@ export default function Home() {
               <div className="flex justify-between items-center mb-3 pb-2 border-b border-neutral-800">
                 <div>
                   <h3 className="font-bold text-sm text-neutral-200 flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
                     LIVE MODEL DETECTIONS
                   </h3>
                   <span className="text-[10px] text-neutral-400 font-mono">
@@ -463,46 +575,148 @@ export default function Home() {
                   </span>
                 </div>
                 <span className="text-xs font-mono bg-neutral-800 px-2 py-0.5 rounded text-neutral-400">
-                  {currentDetections.length} Events
+                  {currentDetections.filter(d => currentTime >= d.start_time - 0.5).length} / {currentDetections.length} Unfolded
                 </span>
               </div>
 
               {/* Isolated Detections List */}
               <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
-                {currentDetections.length === 0 ? (
-                  <div className="text-center py-12 text-neutral-500 text-xs">
-                    <p className="font-bold mb-1">No incident detections for {selectedVideo?.filename}.</p>
-                    <p className="text-neutral-600">Model classified full video sequence as Normal Activity.</p>
+                {analyzingVideo ? (
+                  <div className="bg-neutral-950/80 border border-cyan-500/30 p-4 rounded-xl text-xs space-y-2 animate-pulse">
+                    <div className="flex items-center gap-2 text-cyan-400 font-bold">
+                      <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping"></span>
+                      ⏳ INFERRING TEMPORAL WINDOWS...
+                    </div>
+                    <p className="text-neutral-400 text-[11px] leading-relaxed">
+                      Extracting 2048-D temporal features across video frame sequence...
+                    </p>
+                  </div>
+                ) : currentDetections.length === 0 ? (
+                  <div className="bg-emerald-950/20 border border-emerald-500/30 p-4 rounded-xl text-xs space-y-2 text-center">
+                    <div className="flex items-center justify-center gap-2 text-emerald-400 font-bold text-sm">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                      🟢 NORMAL VIDEO VERIFIED
+                    </div>
+                    <p className="text-neutral-300 text-[11px]">
+                      Analysis completed across video duration ({selectedVideo?.duration}s). This is a normal video and no anomaly was detected.
+                    </p>
                   </div>
                 ) : (
-                  currentDetections.map((det, idx) => (
-                    <div
-                      key={idx}
-                      className="bg-neutral-950 border border-neutral-800 hover:border-neutral-700 p-3 rounded-xl transition space-y-2"
-                    >
-                      <div className="flex justify-between items-start">
-                        <span className="font-bold text-xs text-red-400 flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                          🔴 {det.label || "FIGHTING DETECTED"}
-                        </span>
-                        <span className="text-[10px] font-mono bg-red-950 text-red-300 px-2 py-0.5 rounded border border-red-800">
-                          {det.peak_confidence}% Conf
-                        </span>
+                  <>
+                    {/* Live Analyzing Card when playback hasn't reached an unreached incident yet */}
+                    {!videoEnded && currentDetections.filter(d => currentTime >= d.start_time - 0.5).length < currentDetections.length && (
+                      <div className="bg-neutral-950/80 border border-cyan-500/30 p-3.5 rounded-xl text-xs space-y-2">
+                        <div className="flex items-center gap-2 text-cyan-400 font-bold">
+                          <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping"></span>
+                          🔍 MONITORING LIVE FRAME STREAM ({formatTime(currentTime)})
+                        </div>
+                        <p className="text-neutral-400 text-[11px] leading-relaxed">
+                          Running PyTorch ResNet50-LSTM sliding temporal window inference across frame sequence...
+                        </p>
+                        <div className="flex justify-between items-center text-[10px] text-neutral-500 font-mono pt-1 border-t border-neutral-900">
+                          <span>Playback Time: {formatTime(currentTime)}</span>
+                          <span className="text-emerald-400 font-bold">
+                            {currentDetections.filter(d => currentTime >= d.start_time - 0.5).length === 0
+                              ? "Baseline Normal Stream"
+                              : `${currentDetections.filter(d => currentTime >= d.start_time - 0.5).length} Incident(s) Captured`}
+                          </span>
+                        </div>
                       </div>
+                    )}
 
-                      <div className="text-xs text-neutral-300 font-mono">
-                        <div>Interval: <span className="text-white font-bold">{det.start_time}s - {det.end_time}s</span></div>
-                        <div className="text-neutral-400 text-[11px] mt-0.5">Video: {selectedVideo?.filename}</div>
+                    {/* Render Anomaly Cards ONLY when video playback reaches or passes their start timestamp */}
+                    {currentDetections
+                      .filter(det => currentTime >= det.start_time - 0.5)
+                      .map((det, idx) => {
+                        const isActive = currentTime >= det.start_time && currentTime <= det.end_time;
+                        const startFormatted = formatTime(det.start_time || 0);
+                        const endFormatted = formatTime(det.end_time || 0);
+                        const rawStart = (det.start_time || 0).toFixed(2);
+                        const rawEnd = (det.end_time || 0).toFixed(2);
+
+                        return (
+                          <div
+                            key={idx}
+                            className={`p-3.5 rounded-xl border transition space-y-2.5 ${
+                              isActive
+                                ? "bg-red-950/60 border-red-500 shadow-lg shadow-red-950/50 animate-pulse"
+                                : "bg-neutral-950 border-neutral-800 hover:border-neutral-700"
+                            }`}
+                          >
+                            <div className="flex justify-between items-start">
+                              <span className={`font-bold text-xs flex items-center gap-1.5 ${isActive ? "text-red-300" : "text-red-400"}`}>
+                                <span className={`w-2 h-2 rounded-full ${isActive ? "bg-red-500 animate-ping" : "bg-red-500"}`}></span>
+                                🔴 {det.label || (det.event_type ? `${det.event_type.toUpperCase()} DETECTED` : "ANOMALY DETECTED")}
+                              </span>
+                              <span className="text-[10px] font-mono bg-red-950 text-red-300 px-2 py-0.5 rounded border border-red-800 font-bold">
+                                {det.peak_confidence}% Conf
+                              </span>
+                            </div>
+
+                            <div className="text-xs text-neutral-300 font-mono space-y-1">
+                              <div className="flex justify-between">
+                                <span className="text-neutral-400">Detected Window:</span>
+                                <span className="text-cyan-400 font-bold">{startFormatted} - {endFormatted} ({rawStart}s - {rawEnd}s)</span>
+                              </div>
+                              {isActive && (
+                                <div className="text-[10px] text-red-400 font-bold uppercase tracking-wider flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-ping"></span>
+                                  PLAYBACK IS CURRENTLY INSIDE THIS ANOMALY WINDOW
+                                </div>
+                              )}
+                            </div>
+
+                            <button
+                              onClick={() => seekToTimestamp(det.start_time)}
+                              className="w-full py-2 bg-red-600/30 hover:bg-red-600 text-red-200 hover:text-white text-xs font-bold rounded-lg border border-red-500/40 transition flex items-center justify-center gap-1.5 shadow"
+                            >
+                              ▶ JUMP TO INCIDENT AT {startFormatted} ({rawStart}s)
+                            </button>
+                          </div>
+                        );
+                      })}
+
+                    {/* Video Playback End - Final Overall Classification Result Highlight Box */}
+                    {(videoEnded || currentTime >= (selectedVideo?.duration || 100) - 0.8) && videoAnalysis && (
+                      <div className={`p-4 rounded-xl border-2 space-y-2 mt-2 shadow-2xl transition-all ${
+                        videoAnalysis.is_anomaly
+                          ? "bg-red-950/90 border-red-500 text-white shadow-red-950/60"
+                          : "bg-emerald-950/90 border-emerald-500 text-white shadow-emerald-950/60"
+                      }`}>
+                        <div className="flex justify-between items-center font-black text-xs uppercase tracking-wider">
+                          <span className="flex items-center gap-1.5 text-cyan-300">
+                            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+                            🏁 PLAYBACK COMPLETE
+                          </span>
+                          <span className="bg-black/60 px-2 py-0.5 rounded text-[10px] font-mono text-neutral-300">
+                            OVERALL RESULT
+                          </span>
+                        </div>
+                        
+                        <div className="py-2.5 px-3 rounded-lg bg-black/60 border border-white/10 text-center">
+                          <span className="text-[10px] text-neutral-400 uppercase tracking-widest block font-bold">OVERALL VIDEO CLASSIFICATION</span>
+                          <span className={`text-sm font-black tracking-wide block mt-1 ${
+                            videoAnalysis.is_anomaly ? "text-red-400" : "text-emerald-400"
+                          }`}>
+                            {videoAnalysis.is_anomaly ? "🚨 THIS IS AN ANOMALY CCTV FOOTAGE" : "🟢 THIS IS A NORMAL CCTV FOOTAGE"}
+                          </span>
+                        </div>
+
+                        <p className="text-[11px] text-neutral-300 font-mono text-center leading-relaxed">
+                          {videoAnalysis.is_anomaly
+                            ? `Video analysis finished. Confirmed ANOMALY CCTV FOOTAGE with ${videoAnalysis.total_instances || videoAnalysis.intervals?.length || 1} threat incident window(s) detected.`
+                            : `Video analysis finished. Confirmed NORMAL CCTV FOOTAGE with zero security threat windows detected.`}
+                        </p>
+
+                        <button
+                          onClick={() => seekToTimestamp(0)}
+                          className="w-full py-2 bg-neutral-900 hover:bg-neutral-800 text-cyan-400 text-xs font-bold rounded-lg border border-neutral-700 transition flex items-center justify-center gap-1.5 shadow"
+                        >
+                          ↺ REPLAY VIDEO FROM 00:00
+                        </button>
                       </div>
-
-                      <button
-                        onClick={() => seekToTimestamp(det.start_time)}
-                        className="w-full mt-1 py-1.5 bg-red-600/30 hover:bg-red-600 text-red-300 hover:text-white text-xs font-bold rounded-lg border border-red-500/30 transition flex items-center justify-center gap-1"
-                      >
-                        ▶ VIEW INCIDENT AT {det.start_time}s
-                      </button>
-                    </div>
-                  ))
+                    )}
+                  </>
                 )}
               </div>
             </div>

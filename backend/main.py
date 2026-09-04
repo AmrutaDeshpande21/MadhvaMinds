@@ -146,7 +146,11 @@ async def list_dataset_videos():
         cap.release()
 
         is_normal = "Normal" in fn
-        category = "Normal" if is_normal else fn.split('_')[0]
+        if is_normal:
+            category = "Normal"
+        else:
+            raw_c = fn.split('_')[0]
+            category = ''.join([c for c in raw_c if not c.isdigit()]) or "Anomaly"
 
         result.append({
             "filename": fn,
@@ -184,7 +188,7 @@ async def analyze_dataset_video(payload: dict):
             now_ts = time.time()
             alert_payload = {
                 "id": int(now_ts * 1000),
-                "type": f"{res.get('prediction')} Detected",
+                "type": res.get("prediction", "Anomaly Detected"),
                 "event_type": res.get("event_type"),
                 "severity": 5,
                 "confidence": res.get("confidence") / 100.0,
